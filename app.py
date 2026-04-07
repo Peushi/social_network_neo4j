@@ -6,7 +6,7 @@ from typing import List, Optional
 from neo4j import GraphDatabase
 
 URI = "neo4j+s://4efd70e6.databases.neo4j.io"
-AUTH = ("neo4j", "EOJJQk0mmIy_KztDJ1ccs-71rMzKu-8nw-yCSyGEiZk")
+AUTH = ("4efd70e6", "EOJJQk0mmIy_KztDJ1ccs-71rMzKu-8nw-yCSyGEiZk")
 
 driver = GraphDatabase.driver(URI, auth=AUTH)
 driver.verify_connectivity()
@@ -15,7 +15,7 @@ driver.verify_connectivity()
 # ======================
 class Database:
     def __init__(self, URI, AUTH):
-        self.driver = GraphDatabase.driver(URI, AUTH=AUTH)
+        self.driver = GraphDatabase.driver(URI, auth=AUTH)
         self._init_db()
     
     def _init_db(self):
@@ -63,28 +63,23 @@ class Database:
             return [dict(r) for r in session.run(query)]
     
     # Post operations
-    def create_post(self, user_id: int, content: str) -> int:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('INSERT INTO posts (user_id, content) VALUES (?, ?)', (user_id, content))
-            return cursor.lastrowid
+    def create_post(self, user_id: str, content: str) -> str:
+        query = """
+        MATCH (u:User {id: $user_id})
+        CREATE (u)-[:POSTED]->(p:Post {id: randomUUID(), content: $content, timestamp: datetime()})
+        RETURN p.id AS post_id
+        """
+        with self.driver.session() as session:
+            return session.run(query, user_id=user_id, content=content).single()["post_id"]
     
-    def get_posts_by_user(self, user_id: int) -> List[dict]:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT p.id, p.content, p.timestamp, u.username, u.name 
-                FROM posts p JOIN users u ON p.user_id = u.id 
-                WHERE p.user_id = ?
-                ORDER BY p.timestamp DESC
-            ''', (user_id,))
-            return [{
-                'id': row[0],
-                'content': row[1],
-                'timestamp': row[2],
-                'username': row[3],
-                'name': row[4]
-            } for row in cursor.fetchall()]
+    def get_posts_by_user(self, user_id: str) -> list[dict]:
+        query = """
+        MATCH (:User {id: $user_id})-[:POSTED]->(p:Post)
+        RETURN p.id AS id, p.content AS content, p.timestamp AS timestamp
+        ORDER BY p.timestamp DESC 
+        """
+        with self.driver.session() as session:
+            return [dict(record) for record in session.run(query, user_id=user_id)]
     
     def get_feed(self, user_id: int) -> List[dict]:
         with self._get_connection() as conn:
