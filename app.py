@@ -37,24 +37,30 @@ class Database:
             print("Neo4j constraints initialization failed:", e)
     
     # User operations
-    def create_user(self, username: str, name: str) -> int:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('INSERT INTO users (username, name) VALUES (?, ?)', (username, name))
-            return cursor.lastrowid
-    
-    def get_user(self, user_id: int) -> Optional[dict]:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT id, username, name FROM users WHERE id = ?', (user_id,))
-            row = cursor.fetchone()
-            return {'id': row[0], 'username': row[1], 'name': row[2]} if row else None
-    
-    def get_all_users(self) -> List[dict]:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT id, username, name FROM users')
-            return [{'id': row[0], 'username': row[1], 'name': row[2]} for row in cursor.fetchall()]
+    def create_user(self, username: str, name: str) -> str:
+        query = """
+        CREATE (u:User {id: randomUUID(), username: $username, name: $name})
+        RETURN u.id AS user_id
+        """
+        with self.driver.session() as session:
+            return session.run(query, username=username, name=name).single()["user_id"]
+
+    def get_user(self, user_id: str) -> dict | None:
+        query = """
+        MATCH (u:User {id: $user_id})
+        RETURN u.id AS id, u.username AS username, u.name AS name
+        """
+        with self.driver.session() as session:
+            record = session.run(query, user_id=user_id).single()
+            return dict(record) if record else None
+
+    def get_all_users(self) -> list[dict]:
+        query = """
+        MATCH (u:User)
+        RETURN u.id AS id, u.username AS username, u.name AS name
+        """
+        with self.driver.session() as session:
+            return [dict(r) for r in session.run(query)]
     
     # Post operations
     def create_post(self, user_id: int, content: str) -> int:
