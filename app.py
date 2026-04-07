@@ -5,49 +5,36 @@ from dataclasses import dataclass
 from typing import List, Optional
 from neo4j import GraphDatabase
 
-# ======================
-# Database Access Layer
-# ======================
 URI = "neo4j+s://4efd70e6.databases.neo4j.io"
 AUTH = ("neo4j", "EOJJQk0mmIy_KztDJ1ccs-71rMzKu-8nw-yCSyGEiZk")
 
 driver = GraphDatabase.driver(URI, auth=AUTH)
 driver.verify_connectivity()
+# ======================
+# Database Access Layer
+# ======================
 class Database:
-    def __init__(self, db_name='social_network.db'):
-        self.db_name = db_name
+    def __init__(self, URI, AUTH):
+        self.driver = GraphDatabase.driver(URI, AUTH=AUTH)
         self._init_db()
     
     def _init_db(self):
-        with self._get_connection() as conn:
-            conn.execute('''
-                CREATE CONSTRAINT unique_user_id IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE;
-                CREATE CONSTRAINT unique_username IF NOT EXISTS FOR (u:User) REQUIRE u.username IS UNIQUE;
-                )
-            ''')
-            
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS posts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    content TEXT NOT NULL,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(user_id) REFERENCES users(id)
-                )
-            ''')
-            
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS followers (
-                    follower_id INTEGER NOT NULL,
-                    followee_id INTEGER NOT NULL,
-                    PRIMARY KEY(follower_id, followee_id),
-                    FOREIGN KEY(follower_id) REFERENCES users(id),
-                    FOREIGN KEY(followee_id) REFERENCES users(id)
-                )
-            ''')
-    
-    def _get_connection(self):
-        return sqlite3.connect(self.db_name)
+        try:
+            with self.driver.session() as session:
+                session.run("""
+                    CREATE CONSTRAINT unique_user_id IF NOT EXISTS
+                    FOR (u:User) REQUIRE u.id IS UNIQUE
+                """)
+                session.run("""
+                    CREATE CONSTRAINT unique_username IF NOT EXISTS
+                    FOR (u:User) REQUIRE u.username IS UNIQUE
+                """)
+                session.run("""
+                    CREATE CONSTRAINT unique_post_id IF NOT EXISTS
+                    FOR (p:Post) REQUIRE p.id IS UNIQUE
+                """)
+        except Exception as e:
+            print("Neo4j constraints initialization failed:", e)
     
     # User operations
     def create_user(self, username: str, name: str) -> int:
