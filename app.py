@@ -81,24 +81,16 @@ class Database:
         with self.driver.session() as session:
             return [dict(record) for record in session.run(query, user_id=user_id)]
     
-    def get_feed(self, user_id: int) -> List[dict]:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT p.id, p.content, p.timestamp, u.username, u.name 
-                FROM posts p 
-                JOIN users u ON p.user_id = u.id
-                JOIN followers f ON p.user_id = f.followee_id
-                WHERE f.follower_id = ?
-                ORDER BY p.timestamp DESC
-            ''', (user_id,))
-            return [{
-                'id': row[0],
-                'content': row[1],
-                'timestamp': row[2],
-                'username': row[3],
-                'name': row[4]
-            } for row in cursor.fetchall()]
+    def get_feed(self, user_id: str) -> list[dict]:
+        query = """
+        MATCH (:User {id: $user_id})-[:FOLLOWS]->(f:User)-[:POSTED]->(p:Post)
+        RETURN p.id AS id, p.content AS content, p.timestamp AS timestamp,
+               f.id AS author_id, f.username AS username, f.name AS name
+        ORDER BY p.timestamp DESC
+        """
+        with self.driver.session() as session:
+            return [dict(record) for record in session.run(query, user_id=user_id)]
+               
     
     # Follow operations
     def follow_user(self, follower_id: str, followee_id: str) -> bool:
@@ -167,24 +159,24 @@ with app.app_context():
 def api_get_users():
     return jsonify(db.get_all_users())
 
-@app.route('/api/users/<int:user_id>', methods=['GET'])
+@app.route('/api/users/<user_id>', methods=['GET'])
 def api_get_user(user_id):
     user = db.get_user(user_id)
     return jsonify(user) if user else ('User not found', 404)
 
-@app.route('/api/users/<int:user_id>/posts', methods=['GET'])
+@app.route('/api/users/<user_id>/posts', methods=['GET'])
 def api_get_user_posts(user_id):
     return jsonify(db.get_posts_by_user(user_id))
 
-@app.route('/api/users/<int:user_id>/feed', methods=['GET'])
+@app.route('/api/users/<user_id>/feed', methods=['GET'])
 def api_get_user_feed(user_id):
     return jsonify(db.get_feed(user_id))
 
-@app.route('/api/users/<int:user_id>/followers', methods=['GET'])
+@app.route('/api/users/<user_id>/followers', methods=['GET'])
 def api_get_user_followers(user_id):
     return jsonify(db.get_followers(user_id))
 
-@app.route('/api/users/<int:user_id>/following', methods=['GET'])
+@app.route('/api/users/<user_id>/following', methods=['GET'])
 def api_get_user_following(user_id):
     return jsonify(db.get_following(user_id))
 
@@ -211,7 +203,7 @@ def home():
         current_user = db.get_user(session['user_id'])
     return render_template('index.html', users=users, current_user=current_user)
 
-@app.route('/user/<int:user_id>')
+@app.route('/user/<user_id>')
 def user_profile(user_id):
     user = db.get_user(user_id)
     if not user:
@@ -239,7 +231,7 @@ def user_profile(user_id):
                          current_user=current_user,
                          is_following=is_following)
 
-@app.route('/user/<int:user_id>/feed')
+@app.route('/user/<user_id>/feed')
 def user_feed(user_id):
     user = db.get_user(user_id)
     feed = db.get_feed(user_id)
@@ -252,7 +244,7 @@ def create_post():
     db.create_post(user_id, content)
     return redirect(url_for('user_profile', user_id=user_id))
 
-@app.route('/login/<int:user_id>')
+@app.route('/login/<user_id>')
 def login(user_id):
     session['user_id'] = user_id
     return redirect(url_for('home'))
